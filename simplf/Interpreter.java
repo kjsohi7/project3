@@ -25,7 +25,7 @@ class Interpreter implements Expr.Visitor<Object>, Stmt.Visitor<Object> {
 
     @Override
     public Object visitExprStmt(Stmt.Expression stmt) {
-        throw new UnsupportedOperationException("TODO: implement statements");
+        return evaluate(stmt.expr);
     }
 
     @Override
@@ -37,22 +37,42 @@ class Interpreter implements Expr.Visitor<Object>, Stmt.Visitor<Object> {
 
     @Override
     public Void visitVarStmt(Stmt.Var stmt) {
-        throw new UnsupportedOperationException("TODO: implement statements");
+        Object value = null;
+        if (stmt.initializer != null) {
+            value = evaluate(stmt.initializer);
+        }
+        environment.define(stmt.name, stmt.name.lexeme, value);
+        return null;
     }
 
     @Override
     public Object visitBlockStmt(Stmt.Block stmt) {
-        throw new UnsupportedOperationException("TODO: implement statements");
+        Environment previous = this.environment;
+        try {
+            this.environment = new Environment(previous);
+            return executeBlock(stmt.statements, this.environment);
+        } finally {
+            this.environment = previous;
+        }
     }
 
     @Override
     public Object visitIfStmt(Stmt.If stmt) {
-        throw new UnsupportedOperationException("TODO: implement statements");
+        if (isTruthy(evaluate(stmt.cond))) {
+            return execute(stmt.thenBranch);
+        } else if (stmt.elseBranch != null) {
+            return execute(stmt.elseBranch);
+        }
+        return null;
     }
 
     @Override
     public Object visitWhileStmt(Stmt.While stmt) {
-        throw new UnsupportedOperationException("TODO: implement statements");
+        Object last = null;
+        while (isTruthy(evaluate(stmt.cond))) {
+            last = execute(stmt.body);
+        }
+        return last;
     }
 
     @Override
@@ -62,7 +82,9 @@ class Interpreter implements Expr.Visitor<Object>, Stmt.Visitor<Object> {
 
     @Override
     public Object visitFunctionStmt(Stmt.Function stmt) {
-        throw new UnsupportedOperationException("TODO: implement statements");
+        SimplfFunction function = new SimplfFunction(stmt, this.environment);
+        environment.define(stmt.name, stmt.name.lexeme, function);
+        return null;
     }
 
     @Override
@@ -155,11 +177,19 @@ class Interpreter implements Expr.Visitor<Object>, Stmt.Visitor<Object> {
 
     @Override
     public Object visitVarExpr(Expr.Variable expr) {
-        throw new UnsupportedOperationException("TODO: implement variable references");
+        return environment.get(expr.name);
     }
     @Override
     public Object visitCallExpr(Expr.Call expr) {
-        throw new UnsupportedOperationException("TODO: implement function calls");
+        Object callee = evaluate(expr.callee);
+        if (!(callee instanceof SimplfCallable)) {
+            throw new RuntimeError(expr.paren, "Can only call functions and lambdas.");
+        }
+        java.util.ArrayList<Object> arguments = new java.util.ArrayList<>();
+        for (Expr argument : expr.args) {
+            arguments.add(evaluate(argument));
+        }
+        return ((SimplfCallable) callee).call(this, arguments);
     }
 
     private Object evaluate(Expr expr) {
@@ -168,7 +198,9 @@ class Interpreter implements Expr.Visitor<Object>, Stmt.Visitor<Object> {
 
     @Override
     public Object visitAssignExpr(Expr.Assign expr) {
-        throw new UnsupportedOperationException("TODO: implement assignments");
+        Object value = evaluate(expr.value);
+        environment.assign(expr.name, value);
+        return value;
     }
 
     @Override
@@ -227,8 +259,46 @@ class Interpreter implements Expr.Visitor<Object>, Stmt.Visitor<Object> {
 
     @Override
     public Object visitLambda(Lambda expr) {
-        throw new UnsupportedOperationException("TODO: implement variable references");
+        Environment closure = this.environment;
+        // Return a callable that captures current environment
+        return new SimplfCallable() {
+            @Override
+            public Object call(Interpreter interpreter, java.util.List<Object> args) {
+                Environment callEnv = new Environment(closure);
+                for (int i = 0; i < expr.params.size(); i++) {
+                    Token param = expr.params.get(i);
+                    Object argVal = i < args.size() ? args.get(i) : null;
+                    callEnv.define(param, param.lexeme, argVal);
+                }
+                return interpreter.evaluateInEnvironment(expr.body, callEnv);
+            }
+        };
     }
 
+    // Execute a series of statements within a given environment.
+    // Returns the last non-null value produced by an expression statement, if any.
+    public Object executeBlock(java.util.List<Stmt> statements, Environment env) {
+        Environment previous = this.environment;
+        Object last = null;
+        try {
+            this.environment = env;
+            for (Stmt statement : statements) {
+                last = execute(statement);
+            }
+        } finally {
+            this.environment = previous;
+        }
+        return last;
+    }
 
+    // Evaluate an expression within a given environment and restore previous afterwards.
+    public Object evaluateInEnvironment(Expr expr, Environment env) {
+        Environment previous = this.environment;
+        try {
+            this.environment = env;
+            return evaluate(expr);
+        } finally {
+            this.environment = previous;
+        }
+    }
 } 

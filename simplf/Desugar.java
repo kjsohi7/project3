@@ -82,7 +82,26 @@ public class Desugar implements Expr.Visitor<Expr>, Stmt.Visitor<Stmt> {
 
     @Override
     public Stmt visitForStmt(For stmt) {
-        throw new UnsupportedOperationException("TODO: desugar for loops");
+        // for (init; cond; incr) body;
+        // Desugar to: {
+        //   init;
+        //   while (cond) { body; incr; }
+        // }
+        Stmt.Expression initStmt = stmt.init == null ? null : new Stmt.Expression(stmt.init.accept(this));
+        Expr condExpr = stmt.cond == null ? new Expr.Literal(true) : stmt.cond.accept(this);
+        Stmt.Expression incrStmt = stmt.incr == null ? null : new Stmt.Expression(stmt.incr.accept(this));
+
+        // Build while body: { body; incr; }
+        java.util.ArrayList<Stmt> whileBodyStmts = new java.util.ArrayList<>();
+        whileBodyStmts.add(stmt.body.accept(this));
+        if (incrStmt != null) whileBodyStmts.add(incrStmt);
+        Stmt whileStmt = new Stmt.While(condExpr, new Stmt.Block(whileBodyStmts));
+
+        // Wrap with optional init in a block
+        java.util.ArrayList<Stmt> out = new java.util.ArrayList<>();
+        if (initStmt != null) out.add(initStmt);
+        out.add(whileStmt);
+        return new Stmt.Block(out);
     }
 
     @Override
